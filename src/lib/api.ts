@@ -1,4 +1,8 @@
-const API_URL = process.env.NEXT_PUBLIC_API_URL!;
+const API_URL = (process.env.NEXT_PUBLIC_API_URL ?? "").replace(/\/$/, "");
+
+if (!API_URL) {
+  console.error("NEXT_PUBLIC_API_URL is not set");
+}
 
 export function getToken() {
   if (typeof window === "undefined") return null;
