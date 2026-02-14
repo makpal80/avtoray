@@ -8,7 +8,7 @@ type Product = {
   id: number;
   name: string;
   price: number;
-  discount_percent: number; // у товара (доп. скидка/акция), если ты используешь
+  discount_percent: number; // у товара (доп. скидка/акция)
   active: boolean;
 };
 
@@ -39,12 +39,13 @@ type Me = {
 };
 
 function formatKZT(v: number) {
-  return new Intl.NumberFormat("ru-RU", { maximumFractionDigits: 0 }).format(v) + " ₸";
+  return new Intl.NumberFormat("ru-RU", { maximumFractionDigits: 0 }).format(Math.ceil(v)) + " ₸";
 }
 
 const PAYMENT_LABELS: Record<string, string> = {
   cash: "Наличные",
   bank: "Банк / перевод",
+  installment: "Банк (рассрочка)",
 };
 
 const STATUS_LABELS: Record<string, string> = {
@@ -65,7 +66,8 @@ export default function UserPage() {
   const [orders, setOrders] = useState<OrderOut[]>([]);
   const [q, setQ] = useState("");
   const [cart, setCart] = useState<Record<number, CartItem>>({});
-  const [paymentMethod, setPaymentMethod] = useState<"cash" | "bank">("cash");
+  type PaymentMethod = "cash" | "bank" | "installment";
+  const [paymentMethod, setPaymentMethod] = useState<PaymentMethod>("cash");
   const [msg, setMsg] = useState<string | null>(null);
   const [loading, setLoading] = useState(false);
 
@@ -137,6 +139,9 @@ const finalEstimated = useMemo(() => {
   // скидка клиента применяется ПОСЛЕ скидок товаров
   return applyPercent(subtotalAfterProductDiscount, userDiscount);
 }, [subtotalAfterProductDiscount, userDiscount]);
+
+const installmentFee = paymentMethod === "installment" ? Math.round(finalEstimated * 15 / 100) : 0;
+const finalWithInstallment = finalEstimated + installmentFee;
 
 const userDiscountAmount = useMemo(() => {
   return subtotalAfterProductDiscount - finalEstimated;
@@ -464,9 +469,16 @@ function getProductFinalPrice(p: Product) {
               </span>
             </div>
 
+            {paymentMethod === "installment" && (
+              <div className="flex items-center justify-between text-sm">
+                <span className="text-gray-600">Надбавка банка (15%)</span>
+                <span className="font-medium">{formatKZT(installmentFee)}</span>
+              </div>
+            )}
+
             <div className="flex items-center justify-between text-sm">
               <span className="text-gray-600">Итого (примерно)</span>
-              <span className="font-semibold">{formatKZT(finalEstimated)}</span>
+              <span className="font-semibold">{formatKZT(finalWithInstallment)}</span>
             </div>
 
             <div className="flex items-center justify-between text-sm">
@@ -487,6 +499,14 @@ function getProductFinalPrice(p: Product) {
                   onClick={() => setPaymentMethod("bank")}
                 >
                   Банк/перевод
+                </button>
+                <button
+                  className={`rounded-xl border px-3 py-2 text-sm ${
+                    paymentMethod === "installment" ? "bg-black text-white" : "bg-white"
+                  }`}
+                  onClick={() => setPaymentMethod("installment")}
+                >
+                  Банк (рассрочка)
                 </button>
               </div>
             </div>
