@@ -42,6 +42,7 @@ type Order = {
 const PAYMENT_LABELS: Record<string, string> = {
   cash: "Наличные",
   bank: "Банк / перевод",
+  installment: "Банк (рассрочка)",
 };
 
 const STATUS_LABEL: Record<string, string> = {
@@ -51,7 +52,7 @@ const STATUS_LABEL: Record<string, string> = {
 };
 
 function formatKZT(v: number) {
-  return new Intl.NumberFormat("ru-RU", { maximumFractionDigits: 0 }).format(v) + " ₸";
+  return new Intl.NumberFormat("ru-RU", { maximumFractionDigits: 0 }).format(Math.ceil(v)) + " ₸";
 }
 
 
