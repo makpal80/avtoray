@@ -39,7 +39,7 @@ export default function Page() {
   return (
     <main className="min-h-screen flex flex-col items-center justify-center p-6">
       <div className="w-full max-w-md rounded-2xl border p-6 shadow-sm">
-        <h1 className="text-2xl font-bold">Autoray</h1>
+        <h1 className="text-2xl font-bold">Avtoray</h1>
         <p className="text-sm text-gray-500 mt-1">Вход по телефону</p>
 
         <form onSubmit={onLogin} className="mt-6 space-y-3">
