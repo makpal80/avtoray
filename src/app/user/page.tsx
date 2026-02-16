@@ -4,12 +4,21 @@ import { useEffect, useMemo, useState } from "react";
 import { useRouter } from "next/navigation";
 import { createOrder, getMyOrders, getProducts, logout, getToken, getMe } from "@/lib/api";
 
+
+type ProductType = {
+  id: number;
+  product_id: number;
+  name: string;
+  image_url: string;
+};
+
 type Product = {
   id: number;
   name: string;
   price: number;
   discount_percent: number; // у товара (доп. скидка/акция)
   active: boolean;
+  types?: ProductType[];
 };
 
 type OrderOut = {
@@ -26,7 +35,11 @@ type OrderOut = {
 type CartItem = {
   product: Product;
   quantity: number;
+  typeId: number | null;
 };
+
+type CartState = Record<string, CartItem>;
+type JustAddedState = Record<string, boolean>;
 
 type Me = {
   id: number;
@@ -65,17 +78,19 @@ export default function UserPage() {
   const [products, setProducts] = useState<Product[]>([]);
   const [orders, setOrders] = useState<OrderOut[]>([]);
   const [q, setQ] = useState("");
-  const [cart, setCart] = useState<Record<number, CartItem>>({});
+  const [cart, setCart] = useState<CartState>({});
   type PaymentMethod = "cash" | "bank" | "installment";
   const [paymentMethod, setPaymentMethod] = useState<PaymentMethod>("cash");
   const [msg, setMsg] = useState<string | null>(null);
   const [loading, setLoading] = useState(false);
+  const [selectedType, setSelectedType] = useState<Record<number, number>>({});
+  const [openTypeImg, setOpenTypeImg] = useState<string | null>(null);
 
   const router = useRouter();
   type Tab = "home" | "products" | "cart" | "history";
   const [tab, setTab] = useState<Tab>("home");
   const [me, setMe] = useState<Me | null>(null);
-  const [justAdded, setJustAdded] = useState<Record<number, boolean>>({});
+  const [justAdded, setJustAdded] = useState<JustAddedState>({});
   
 
 async function loadAll() {
@@ -116,7 +131,14 @@ async function loadAll() {
     return products.filter((p) => p.name.toLowerCase().includes(s));
   }, [products, q]);
 
-  const cartList = useMemo(() => Object.values(cart), [cart]);
+  const cartList = useMemo(() => {
+  return Object.entries(cart).map(([key, v]) => ({
+    key,
+    product: v.product,
+    typeId: v.typeId ?? null,
+    quantity: v.quantity,
+  }));
+}, [cart]);
 
 const userDiscount = me?.discount ?? 0;
 
@@ -148,49 +170,69 @@ const userDiscountAmount = useMemo(() => {
 }, [subtotalAfterProductDiscount, finalEstimated]);
 
 
-function addToCart(p: Product) {
+function cartKey(productId: number, typeId: number | null) {
+  return `${productId}:${typeId ?? "none"}`;
+}
+
+function addToCart(p: Product, typeId: number | null) {
+  const key = cartKey(p.id, typeId);
+
   setCart((prev) => {
-    const cur = prev[p.id];
+    const cur = prev[key];
     const nextQty = cur ? cur.quantity + 1 : 1;
-    return { ...prev, [p.id]: { product: p, quantity: nextQty } };
+    return { ...prev, [key]: { product: p, typeId, quantity: nextQty } };
   });
 
-  setJustAdded((prev) => ({ ...prev, [p.id]: true }));
+  // ✅ анимация по key
+  setJustAdded((prev) => ({ ...prev, [key]: true }));
   window.setTimeout(() => {
     setJustAdded((prev) => {
       const copy = { ...prev };
-      delete copy[p.id];
+      delete copy[key];
       return copy;
     });
   }, 1000);
 }
+
 
   function onLogout() {
     logout();
     router.replace("/");
   }
 
-  function inc(id: number) {
-    setCart((prev) => {
-      const cur = prev[id];
-      if (!cur) return prev;
-      return { ...prev, [id]: { ...cur, quantity: cur.quantity + 1 } };
-    });
-  }
+function inc(key: string) {
+  setCart(prev => {
+    const cur = prev[key];
+    if (!cur) return prev;
+    return { ...prev, [key]: { ...cur, quantity: cur.quantity + 1 } };
+  });
 
-  function dec(id: number) {
-    setCart((prev) => {
-      const cur = prev[id];
-      if (!cur) return prev;
-      const nextQty = cur.quantity - 1;
-      if (nextQty <= 0) {
-        const copy = { ...prev };
-        delete copy[id];
-        return copy;
-      }
-      return { ...prev, [id]: { ...cur, quantity: nextQty } };
+  // если хочешь, можно и flash на + делать:
+  setJustAdded(prev => ({ ...prev, [key]: true }));
+  window.setTimeout(() => {
+    setJustAdded(prev => {
+      const copy = { ...prev };
+      delete copy[key];
+      return copy;
     });
-  }
+  }, 600);
+}
+
+function dec(key: string) {
+  setCart(prev => {
+    const cur = prev[key];
+    if (!cur) return prev;
+
+    const nextQty = cur.quantity - 1;
+    if (nextQty <= 0) {
+      const copy = { ...prev };
+      delete copy[key];
+      return copy;
+    }
+
+    return { ...prev, [key]: { ...cur, quantity: nextQty } };
+  });
+}
 
   function clearCart() {
     setCart({});
@@ -201,6 +243,7 @@ function addToCart(p: Product) {
     const items = cartList.map((it) => ({
       product_id: it.product.id,
       quantity: it.quantity,
+      type_id: it.typeId ?? null,
     }));
     if (items.length === 0) {
       setMsg("⚠️ Корзина пустая");
@@ -238,6 +281,7 @@ function getProductFinalPrice(p: Product) {
   const dp = p.discount_percent ?? 0; // скидка товара
   return applyPercent(p.price, dp);
 }
+
 
   return (
   <main className="min-h-screen bg-gray-50 pb-20">
@@ -340,43 +384,98 @@ function getProductFinalPrice(p: Product) {
 
           <div className="mt-3 grid gap-2">
            {filtered.map((p) => {
-            const inCartQty = cart[p.id]?.quantity ?? 0;
+            const types = p.types ?? [];
+            const hasTypes = types.length > 0;
+            const selId = selectedType[p.id] ?? (hasTypes ? types[0].id : null);
+            const key = cartKey(p.id, selId);
+            const inCartQty = cart[key]?.quantity ?? 0;
             const inCart = inCartQty > 0;
-            const addedFlash = !!justAdded[p.id];
+            const addedFlash = !!justAdded[key]; 
 
             return (
               <div
-                key={p.id}
-                className={`flex items-center gap-3 rounded-xl border p-3 transition ${
+                key={cartKey(p.id, selId)}
+                className={`rounded-xl border p-3 transition ${
                   addedFlash ? "ring-2 ring-black" : ""
                 }`}
               >
-                <div className="min-w-0 flex-1">
-                  <div className="font-medium truncate">{p.name}</div>
-                  <div className="text-sm text-gray-600">
-                    {p.discount_percent > 0 ? (
-                      <div className="flex items-center gap-2">
-                        <span className="line-through text-gray-400">{formatKZT(p.price)}</span>
-                        <span className="font-semibold">{formatKZT(getProductFinalPrice(p))}</span>
-                        <span className="text-xs rounded-full border px-2 py-0.5">
-                          -{p.discount_percent}%
-                        </span>
-                      </div>
-                    ) : (
-                      <span>{formatKZT(p.price)}</span>
-                    )}
+                {/* верхняя строка: инфо + кнопка (на десктопе справа) */}
+                <div className="flex items-start gap-3">
+                  <div className="min-w-0 flex-1">
+                    <div className="font-medium truncate">{p.name}</div>
+
+                    <div className="text-sm text-gray-600 mt-1">
+                      {p.discount_percent > 0 ? (
+                        <div className="flex items-center gap-2 flex-wrap">
+                          <span className="line-through text-gray-400">{formatKZT(p.price)}</span>
+                          <span className="font-semibold">{formatKZT(getProductFinalPrice(p))}</span>
+                          <span className="text-xs rounded-full border px-2 py-0.5">
+                            -{p.discount_percent}%
+                          </span>
+                        </div>
+                      ) : (
+                        <span>{formatKZT(p.price)}</span>
+                      )}
+                    </div>
                   </div>
+
+                  {/* кнопка справа только на >=sm */}
+                  <button
+                    type="button"
+                    onClick={() => addToCart(p, selId)}
+                    disabled={hasTypes && !selId}
+                    className={`hidden sm:inline-flex rounded-xl border px-3 py-2 text-sm disabled:opacity-50 ${
+                      addedFlash ? "bg-black text-white" : ""
+                    }`}
+                  >
+                    {addedFlash ? "✅ Добавлено" : inCart ? `В корзине (${inCartQty})` : "+ Добавить"}
+                  </button>
                 </div>
 
-                <button
-                  disabled={inCart}
-                  onClick={() => addToCart(p)}
-                  className={`rounded-xl border px-3 py-2 text-sm transition ${
-                    inCart ? "bg-black text-white opacity-90 cursor-default" : "bg-white"
-                  }`}
-                >
-                  {inCart ? `Добавлено (${inCartQty})` : "+ Добавить"}
-                </button>
+                {/* низ: типы + фото + кнопка (на мобилке внизу) */}
+                <div className="mt-3 grid gap-2">
+                  {hasTypes && (
+                    <div className="flex flex-wrap gap-2">
+                      {types.map((t) => (
+                        <button
+                          key={`${p.id}-${t.id}`}
+                          type="button"
+                          onClick={() => setSelectedType((prev) => ({ ...prev, [p.id]: t.id }))}
+                          className={`text-xs rounded-full border px-3 py-1 ${
+                            selId === t.id ? "bg-black text-white" : "bg-white"
+                          }`}
+                        >
+                          {t.name}
+                        </button>
+                      ))}
+                    </div>
+                  )}
+
+                  {hasTypes && (
+                    <button
+                      type="button"
+                      className="text-xs underline text-gray-600 self-start"
+                      onClick={() => {
+                        const t = types.find((x) => x.id === selId);
+                        if (t) setOpenTypeImg(t.image_url);
+                      }}
+                    >
+                      Посмотреть фото типа
+                    </button>
+                  )}
+
+                  {/* кнопка на мобилке (на всю ширину) */}
+                  <button
+                    type="button"
+                    onClick={() => addToCart(p, selId)}
+                    disabled={hasTypes && !selId}
+                    className={`sm:hidden w-full rounded-xl border px-3 py-2 text-sm disabled:opacity-50 ${
+                      addedFlash ? "bg-black text-white" : ""
+                    }`}
+                  >
+                    {addedFlash ? "✅ Добавлено" : inCart ? `В корзине (${inCartQty})` : "+ Добавить"}
+                  </button>
+                </div>
               </div>
             );
           })}
@@ -398,7 +497,7 @@ function getProductFinalPrice(p: Product) {
           ) : (
             <div className="mt-3 grid gap-2">
               {cartList.map((it) => (
-                <div key={it.product.id} className="flex items-center gap-3 rounded-xl border p-3">
+                <div key={it.key} className="flex items-center gap-3 rounded-xl border p-3">
                   <div className="min-w-0 flex-1">
                     <div className="font-medium truncate">{it.product.name}</div>
                     <div className="text-sm text-gray-600">
@@ -431,11 +530,11 @@ function getProductFinalPrice(p: Product) {
                   </div>
 
                   <div className="flex items-center gap-2">
-                    <button className="rounded-lg border px-3 py-2" onClick={() => dec(it.product.id)}>
+                    <button className="rounded-lg border px-3 py-2" onClick={() => dec(it.key)}>
                       −
                     </button>
                     <div className="w-8 text-center text-sm">{it.quantity}</div>
-                    <button className="rounded-lg border px-3 py-2" onClick={() => inc(it.product.id)}>
+                    <button className="rounded-lg border px-3 py-2" onClick={() => inc(it.key)}>
                       +
                     </button>
                   </div>
@@ -592,6 +691,25 @@ function getProductFinalPrice(p: Product) {
         </button>
       </div>
     </nav>
+
+      {openTypeImg && (
+        <div
+          className="fixed inset-0 bg-black/60 flex items-center justify-center p-4 z-50"
+          onClick={() => setOpenTypeImg(null)}
+        >
+          <div className="bg-white rounded-2xl p-3 max-w-md w-full" onClick={(e) => e.stopPropagation()}>
+            <img src={openTypeImg} alt="type" className="w-full rounded-xl" />
+            <button
+              className="mt-3 w-full rounded-xl bg-black text-white p-3"
+              onClick={() => setOpenTypeImg(null)}
+            >
+              Закрыть
+            </button>
+          </div>
+        </div>
+      )}
   </main>
+
+  
 );
 }
