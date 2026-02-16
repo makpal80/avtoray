@@ -1,4 +1,7 @@
-const API_URL = (process.env.NEXT_PUBLIC_API_URL ?? "").replace(/\/$/, "");
+// const API_URL = (process.env.NEXT_PUBLIC_API_URL ?? "").replace(/\/$/, "");
+const API_URL =
+  process.env.NEXT_PUBLIC_API_URL ??
+  "http://127.0.0.1:8000";
 
 if (!API_URL) {
   console.error("NEXT_PUBLIC_API_URL is not set");
@@ -72,7 +75,7 @@ export async function getProducts() {
 }
 
 export async function createOrder(payload: {
-  items: { product_id: number; quantity: number }[];
+  items: { product_id: number; quantity: number; type_id?: number | null }[];
   payment_method: string;
 }) {
   return apiFetch("/orders", { method: "POST", body: JSON.stringify(payload) });
@@ -157,4 +160,25 @@ export async function getMe() {
 
 export async function adminGetOrderDetails(orderId: number) {
   return apiFetch(`/admin/orders/${orderId}`);
+}
+
+export async function adminAddProductType(productId: number, name: string, file: File) {
+  const token = getToken();
+  const form = new FormData();
+  form.append("name", name);
+  form.append("file", file);
+
+  const res = await fetch(`${API_URL}/admin/products/${productId}/types`, {
+    method: "POST",
+    headers: token ? { Authorization: `Bearer ${token}` } : {},
+    body: form,
+  });
+
+  const data = await res.json();
+  if (!res.ok) throw new Error(data?.detail || "Ошибка добавления типа");
+  return data;
+}
+
+export async function adminDeleteProductType(typeId: number) {
+  return apiFetch(`/admin/types/${typeId}`, { method: "DELETE" });
 }
