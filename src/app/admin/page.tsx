@@ -16,6 +16,14 @@ import {
   adminRejectOrder
 } from "@/lib/api";
 import { getToken, logout } from "@/lib/api";
+import { adminAddProductType, adminDeleteProductType } from "@/lib/api";
+
+type ProductType = {
+  id: number;
+  product_id: number;
+  name: string;
+  image_url: string;
+};
 
 type Product = {
   id: number;
@@ -23,6 +31,7 @@ type Product = {
   price: number;
   discount_percent: number;
   active: boolean;
+  types?: ProductType[];
 };
 
 type Order = {
@@ -92,6 +101,10 @@ export default function AdminPage() {
   const [open, setOpen] = useState(false);
   const [selectedId, setSelectedId] = useState<number | null>(null);
   const [details, setDetails] = useState<any>(null);
+
+  // типы товаров
+  const [typeName, setTypeName] = useState<Record<number, string>>({});
+  const [typeFile, setTypeFile] = useState<Record<number, File | null>>({});
 
 
 //   useEffect(() => {
@@ -183,6 +196,43 @@ export default function AdminPage() {
       setLoading(false);
     }
   }
+
+  async function onAddType(productId: number) {
+    setMsg(null);
+
+    const name = (typeName[productId] ?? "").trim();
+    const file = typeFile[productId];
+
+    if (!name) return setMsg("⚠️ Введите название типа");
+    if (!file) return setMsg("⚠️ Выберите фото типа");
+
+    setLoading(true);
+    try {
+      await adminAddProductType(productId, name, file);
+      setTypeName((p) => ({ ...p, [productId]: "" }));
+      setTypeFile((p) => ({ ...p, [productId]: null }));
+      await loadProducts();
+      setMsg("✅ Тип добавлен");
+    } catch (e: any) {
+      setMsg("❌ " + e.message);
+    } finally {
+      setLoading(false);
+    }
+  }
+
+  async function onDeleteType(typeId: number) {
+    setMsg(null);
+    setLoading(true);
+    try {
+      await adminDeleteProductType(typeId);
+      await loadProducts();
+      setMsg("✅ Тип удалён");
+    } catch (e: any) {
+      setMsg("❌ " + e.message);
+    } finally {
+      setLoading(false);
+    }
+ }
 
   async function onUpdateProduct(id: number, payload: any) {
     setMsg(null);
@@ -340,6 +390,7 @@ export default function AdminPage() {
                   <th className="p-2 border text-left">Название</th>
                   <th className="p-2 border text-left">Цена</th>
                   <th className="p-2 border text-left">Скидка %</th>
+                  <th className="p-2 border text-left">Типы</th>
                   <th className="p-2 border text-left">Active</th>
                 </tr>
               </thead>
@@ -379,6 +430,54 @@ export default function AdminPage() {
                           if (e.key === "Enter") (e.target as HTMLInputElement).blur();
                         }}
                       />
+                    </td>
+
+                    <td className="p-2 border align-top">
+                      {/* список типов */}
+                      <div className="flex flex-wrap gap-2">
+                        {(p.types ?? []).map((t) => (
+                          <div key={t.id} className="flex items-center gap-2 border rounded-lg px-2 py-1 text-xs">
+                            <a href={t.image_url} target="_blank" className="underline">
+                              {t.name}
+                            </a>
+                            <button
+                              type="button"
+                              disabled={loading}
+                              onClick={() => onDeleteType(t.id)}
+                              className="text-red-600 underline disabled:opacity-50"
+                            >
+                              удалить
+                            </button>
+                          </div>
+                        ))}
+                        {(p.types ?? []).length === 0 && <span className="text-xs text-gray-400">нет</span>}
+                      </div>
+
+                      {/* добавление */}
+                      <div className="mt-2 grid gap-2">
+                        <input
+                          className="border rounded px-2 py-1 text-sm"
+                          placeholder="Название типа"
+                          value={typeName[p.id] ?? ""}
+                          onChange={(e) => setTypeName((prev) => ({ ...prev, [p.id]: e.target.value }))}
+                        />
+                        <input
+                          type="file"
+                          accept="image/*"
+                          onChange={(e) => {
+                            const f = e.target.files?.[0] ?? null;
+                            setTypeFile((prev) => ({ ...prev, [p.id]: f }));
+                          }}
+                        />
+                        <button
+                          type="button"
+                          disabled={loading}
+                          onClick={() => onAddType(p.id)}
+                          className="rounded-lg bg-black text-white px-3 py-2 text-sm disabled:opacity-50"
+                        >
+                          + Добавить тип
+                        </button>
+                      </div>
                     </td>
 
                     <td className="p-2 border">
@@ -648,6 +747,7 @@ export default function AdminPage() {
                     <thead>
                         <tr className="bg-gray-100">
                         <th className="p-2 border text-left">Товар</th>
+                        <th className="p-2 border text-left">Тип</th>
                         <th className="p-2 border text-left">Кол-во</th>
                         <th className="p-2 border text-left">Цена</th>
                         <th className="p-2 border text-left">Скидка</th>
@@ -658,6 +758,7 @@ export default function AdminPage() {
                         {details.items.map((it: any) => (
                         <tr key={it.id}>
                             <td className="p-2 border">{it.product_name}</td>
+                            <td className="p-2 border">{it.type?.name ?? "—"}</td>
                             <td className="p-2 border">{it.quantity}</td>
                             <td className="p-2 border">{it.original_price} → {it.price}</td>
                             <td className="p-2 border">{it.product_discount_percent}%</td>
