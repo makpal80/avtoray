@@ -443,7 +443,11 @@ export default function AdminPage() {
                             <button
                               type="button"
                               disabled={loading}
-                              onClick={() => onDeleteType(t.id)}
+                              onClick={() => {
+                                const ok = window.confirm(`Удалить тип "${t.name}" у товара "${p.name}" ? Это действие нельзя отменить.`);
+                                if (!ok) return;
+                                onDeleteType(t.id);
+                              }}
                               className="text-red-600 underline disabled:opacity-50"
                             >
                               удалить
